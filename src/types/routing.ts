@@ -47,10 +47,14 @@ export interface RouteResult {
   origin: Coordinates;
   destination: Coordinates;
   distanceKm: number;
-  durationSeconds: number;
+  durationSeconds: number; // durasi berdasarkan kecepatan rata-rata realistis (misal 40 km/jam)
   formattedDuration: string;
+  averageSpeedKmH: number; // kecepatan rata-rata yang digunakan (km/jam)
+  orsDurationSeconds?: number; // durasi teoritis bawaan OpenRouteService (tanpa hambatan)
+  orsFormattedDuration?: string;
   routeGeometry?: [number, number][]; // [lat, lon][] untuk polyline Leaflet
 }
 
 export type MapFocusMode = "all" | "origin" | "destination";
+
 

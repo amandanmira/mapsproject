@@ -223,12 +223,34 @@ export async function geocodeLocation(
   };
 }
 
+export const DEFAULT_AVERAGE_SPEED_KMH = 40;
+
 /**
- * Menghitung jarak dan waktu tempuh darat (driving-car) menggunakan OpenRouteService API
+ * Menghitung durasi realistis berdasarkan jarak dan kecepatan rata-rata kendaraan
+ */
+export function calculateDurationFromSpeed(
+  distanceKm: number,
+  averageSpeedKmH: number
+): {
+  durationSeconds: number;
+  formattedDuration: string;
+} {
+  const safeSpeed = Math.max(5, averageSpeedKmH);
+  const durationSeconds = Math.round((distanceKm / safeSpeed) * 3600);
+  return {
+    durationSeconds,
+    formattedDuration: formatDuration(durationSeconds),
+  };
+}
+
+/**
+ * Menghitung jarak dan waktu tempuh darat (driving-car) menggunakan OpenRouteService API.
+ * Waktu tempuh dihitung berdasarkan kecepatan rata-rata realistis (default: 40 km/jam).
  */
 export async function calculateDrivingRoute(
   origin: Coordinates,
-  destination: Coordinates
+  destination: Coordinates,
+  averageSpeedKmH: number = DEFAULT_AVERAGE_SPEED_KMH
 ): Promise<RouteResult> {
   const apiKey = process.env.NEXT_PUBLIC_ORS_KEY;
 
@@ -297,7 +319,14 @@ export async function calculateDrivingRoute(
   }
 
   const distanceKm = Number((summary.distance / 1000).toFixed(2));
-  const durationSeconds = summary.duration;
+  const orsDurationSeconds = summary.duration;
+  const orsFormattedDuration = formatDuration(orsDurationSeconds);
+
+  // Hitung durasi berdasarkan kecepatan rata-rata realistis di Indonesia
+  const { durationSeconds, formattedDuration } = calculateDurationFromSpeed(
+    distanceKm,
+    averageSpeedKmH
+  );
 
   // Ekstraksi geometry rute untuk polyline Leaflet (mengonversi [lon, lat] menjadi [lat, lon])
   const geometryCoordinates = data.features?.[0]?.geometry?.coordinates;
@@ -315,8 +344,12 @@ export async function calculateDrivingRoute(
     destination,
     distanceKm,
     durationSeconds,
-    formattedDuration: formatDuration(durationSeconds),
+    formattedDuration,
+    averageSpeedKmH,
+    orsDurationSeconds,
+    orsFormattedDuration,
     routeGeometry,
   };
 }
+
 

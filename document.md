@@ -74,17 +74,15 @@ Saat memodifikasi atau memindahkan logika dari `src/services/routingApi.ts`, per
 - **Output:** Mengembalikan daftar tempat yang diuraikan menjadi `name` (judul lokasi), `subtext` (rincian alamat), dan koordinat `lat` & `lon` bertipe `number`.
 - **Keyboard & UX:** Input tidak langsung menghitung saat tombol Enter ditekan; melainkan membuka dropdown atau memilih item teratas dari daftar rekomendasi.
 
-### B. Tahap 2: Routing via OpenRouteService (`calculateDrivingRoute`)
+### B. Tahap 2: Routing via OpenRouteService & Perhitungan Kecepatan Realistis
 - **Endpoint:** `GET https://api.openrouteservice.org/v2/directions/driving-car`
-- **Query Params:**
-  - `api_key`: `NEXT_PUBLIC_ORS_KEY`
-  - `start`: `${origin.lon},${origin.lat}`
-  - `end`: `${destination.lon},${destination.lat}`
-- **PERINGATAN FORMAT KOORDINAT:** OpenRouteService menggunakan standar GeoJSON yaitu **`longitude,latitude`** (bukan `latitude,longitude`). Jangan sampai terbalik!
-- **Data Penting pada Respons JSON:**
-  - Jarak (dalam **meter**): `data.features[0].properties.summary.distance` $\rightarrow$ dibagi `1000` dan dibulatkan 2 desimal untuk menjadi **kilometer (km)**.
-  - Durasi (dalam **detik**): `data.features[0].properties.summary.duration` $\rightarrow$ dikonversi melalui helper `formatDuration()` menjadi format `"X jam Y menit"`.
-  - Geometri Rute: `data.features[0].geometry.coordinates` yang berisi array `[longitude, latitude]` dikonversi menjadi `[latitude, longitude]` untuk langsung digambar sebagai *polyline* di peta Leaflet.
+- **Mengapa Durasi Bawaan ORS Terlalu Cepat (Optimis)?**
+  - OpenRouteService menghitung durasi berdasarkan batas kecepatan teoritis bebas hambatan di OpenStreetMap (60–80 km/jam jalan nasional & tol), tanpa memperhitungkan lampu lalu lintas, pasar tumpah, dan kemacetan nyata di Indonesia (misal: koridor Solo-Klaten-Jogja).
+- **Solusi Realistis:**
+  - Jarak tempuh (km) tetap diambil secara akurat dari ORS (`summary.distance / 1000`).
+  - Estimasi waktu perjalanan dihitung berbasis **kecepatan rata-rata realistis 40 km/jam** (`(distanceKm / speed) * 3600`) sebagai standar kondisi jalan Indonesia, dengan opsi pilihan preset (30 km/jam macet, 40 km/jam standar realistis, 60 km/jam tol/lancar, 80 km/jam full tol).
+  - Durasi teoritis ORS tetap disimpan sebagai referensi pembanding.
+- **Geometri Rute:** `data.features[0].geometry.coordinates` yang berisi array `[longitude, latitude]` dikonversi menjadi `[latitude, longitude]` untuk langsung digambar sebagai *polyline* di peta Leaflet.
 
 ### C. Tahap 3: Peta Interaktif Leaflet (`RouteMap.tsx`)
 - Menggunakan dynamic import Next.js (`ssr: false`) agar bebas dari *error hydration / window undefined*.
@@ -110,13 +108,17 @@ export interface RouteResult {
   origin: Coordinates;
   destination: Coordinates;
   distanceKm: number;
-  durationSeconds: number;
+  durationSeconds: number; // durasi berdasarkan kecepatan rata-rata realistis (misal 40 km/jam)
   formattedDuration: string;
+  averageSpeedKmH: number; // kecepatan rata-rata yang digunakan (km/jam)
+  orsDurationSeconds?: number; // durasi teoritis bawaan OpenRouteService (tanpa hambatan)
+  orsFormattedDuration?: string;
   routeGeometry?: [number, number][]; // [lat, lon][] untuk polyline Leaflet
 }
 
 export type MapFocusMode = "all" | "origin" | "destination";
 ```
+
 
 
 ---

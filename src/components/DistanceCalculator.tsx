@@ -13,11 +13,13 @@ import {
   RotateCcw,
   MapPin,
   Navigation,
+  Gauge,
 } from "lucide-react";
 import { Coordinates, MapFocusMode, RouteResult } from "@/types/routing";
 import {
   calculateDrivingRoute,
-  geocodeLocation,
+  calculateDurationFromSpeed,
+  DEFAULT_AVERAGE_SPEED_KMH,
 } from "@/services/routingApi";
 import LocationAutocomplete from "./LocationAutocomplete";
 
@@ -38,12 +40,32 @@ export default function DistanceCalculator() {
   const [origin, setOrigin] = useState<Coordinates | null>(null);
   const [destination, setDestination] = useState<Coordinates | null>(null);
   const [focusMode, setFocusMode] = useState<MapFocusMode>("all");
+  const [averageSpeed, setAverageSpeed] = useState<number>(
+    DEFAULT_AVERAGE_SPEED_KMH
+  );
 
   const [loadingStep, setLoadingStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RouteResult | null>(null);
 
   const isLoading = loadingStep !== null;
+
+  // Handler saat kecepatan rata-rata diubah (langsung hitung ulang durasi tanpa hit ulang API)
+  const handleSpeedChange = (newSpeed: number) => {
+    setAverageSpeed(newSpeed);
+    if (result) {
+      const { durationSeconds, formattedDuration } = calculateDurationFromSpeed(
+        result.distanceKm,
+        newSpeed
+      );
+      setResult({
+        ...result,
+        averageSpeedKmH: newSpeed,
+        durationSeconds,
+        formattedDuration,
+      });
+    }
+  };
 
   // Handler saat lokasi asal dipilih dari dropdown
   const handleOriginSelect = (coords: Coordinates | null) => {
@@ -108,7 +130,11 @@ export default function DistanceCalculator() {
     try {
       setLoadingStep("Menghitung jarak & jalur rute darat (OpenRouteService)...");
 
-      const routeMetrics = await calculateDrivingRoute(origin, destination);
+      const routeMetrics = await calculateDrivingRoute(
+        origin,
+        destination,
+        averageSpeed
+      );
       setResult(routeMetrics);
       setFocusMode("all");
     } catch (err: unknown) {
@@ -122,6 +148,7 @@ export default function DistanceCalculator() {
       setLoadingStep(null);
     }
   };
+
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
@@ -242,6 +269,69 @@ export default function DistanceCalculator() {
             />
           </div>
 
+          {/* Pengaturan Kecepatan Rata-rata */}
+          <div className="rounded-xl border border-slate-200/90 bg-slate-50/70 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-indigo-600" />
+                <label className="text-xs font-semibold text-slate-800 uppercase tracking-wide">
+                  Kecepatan Rata-rata Perjalanan:
+                </label>
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 font-mono">
+                  {averageSpeed} km/jam
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                Mencegah estimasi terlalu optimis akibat macet &amp; lampu merah
+              </span>
+            </div>
+
+            {/* Pilihan Preset Kecepatan */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { speed: 30, label: "30 km/jam", desc: "Macet Padat / Jam Sibuk" },
+                {
+                  speed: 40,
+                  label: "40 km/jam",
+                  desc: "Standar Realistis (Rekomendasi)",
+                  isRecommended: true,
+                },
+                { speed: 60, label: "60 km/jam", desc: "Lancar / Tol Sebagian" },
+                { speed: 80, label: "80 km/jam", desc: "Full Jalan Tol Bebas Hambatan" },
+              ].map((preset) => {
+                const isSelected = averageSpeed === preset.speed;
+                return (
+                  <button
+                    key={preset.speed}
+                    type="button"
+                    onClick={() => handleSpeedChange(preset.speed)}
+                    className={`flex flex-col items-start p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
+                      isSelected
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-sm ring-2 ring-indigo-500/20"
+                        : "bg-white hover:bg-slate-100/80 text-slate-700 border-slate-200/80"
+                    }`}
+                  >
+                    <div className="w-full flex items-center justify-between">
+                      <span className="text-xs font-bold">{preset.label}</span>
+                      {preset.isRecommended && !isSelected && (
+                        <span className="text-[9px] bg-emerald-100 text-emerald-700 font-semibold px-1.5 py-0.5 rounded-md">
+                          Rekomendasi
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={`text-[11px] mt-0.5 line-clamp-1 ${
+                        isSelected ? "text-indigo-100" : "text-slate-500"
+                      }`}
+                    >
+                      {preset.desc}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Tombol Eksekusi Hitung */}
           <button
             type="submit"
@@ -334,16 +424,27 @@ export default function DistanceCalculator() {
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white shadow-sm">
                 <Clock className="w-6 h-6" />
               </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                  Estimasi Waktu Tempuh
-                </p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                    Estimasi Waktu Tempuh
+                  </p>
+                  <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                    {result.averageSpeedKmH} km/jam
+                  </span>
+                </div>
                 <p className="text-2xl font-bold text-slate-900 mt-0.5">
                   {result.formattedDuration}
                 </p>
+                {result.orsFormattedDuration && (
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    (Teoritis bebas hambatan: ~{result.orsFormattedDuration})
+                  </p>
+                )}
               </div>
             </div>
           </div>
+
 
           {/* Rincian Koordinat Terkunci */}
           <div className="space-y-3">
