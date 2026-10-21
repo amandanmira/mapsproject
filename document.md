@@ -33,19 +33,31 @@ mapsproject/
 └── src/
     ├── app/
     │   ├── globals.css         # Inisialisasi layer Tailwind CSS & Leaflet styles
-    │   ├── layout.tsx          # Root layout berbahasa Indonesia
-    │   └── page.tsx            # Halaman utama (Server Component)
+    │   ├── layout.tsx          # Root layout + Navbar sticky
+    │   ├── page.tsx            # Halaman kalkulator rute & peta interaktif
+    │   ├── api/
+    │   │   └── destinasi/
+    │   │       └── route.ts    # Endpoint GET & POST untuk pengujian API data tempat
+    │   └── destinasi/
+    │       └── page.tsx        # Halaman testing data destinasi, hotel, kuliner & JSON inspector
     ├── components/
-    │   ├── DistanceCalculator.tsx      # Komponen utama mengelola state rute, form, & hasil
+    │   ├── Navbar.tsx                  # Navigasi antar halaman
+    │   ├── DistanceCalculator.tsx      # Komponen utama mengelola rute, form, kecepatan, & hasil
     │   ├── LocationAutocomplete.tsx    # Input pencarian tempat dengan dropdown hasil instan
-    │   └── RouteMap.tsx                # Peta interaktif Leaflet dengan mode pandang & polyline
+    │   ├── RouteMap.tsx                # Peta interaktif Leaflet dengan mode pandang & polyline
+    │   └── AddPlaceModal.tsx           # Modal form tambah data & trigger hit API POST
+    ├── data/
+    │   └── mockPlaces.ts       # Dataset mock lengkap destinasi, hotel, kuliner, dan transportasi
     ├── services/
     │   └── routingApi.ts       # Service LocationIQ (Autocomplete & Search) & OpenRouteService
     └── types/
-        └── routing.ts          # Kontrak interface TypeScript untuk API, UI state, & map mode
+        ├── routing.ts          # Kontrak interface TypeScript untuk API routing & map mode
+        └── place.ts            # Skema tipe data tempat dinamis (Wisata, Akomodasi, Kuliner, Lainnya)
 ```
 
 ---
+
+
 
 
 ## 3. Konfigurasi Variabel Lingkungan (`.env.local`)
@@ -121,9 +133,83 @@ export type MapFocusMode = "all" | "origin" | "destination";
 
 
 
+### 5.2. Skema Entitas Tempat & Destinasi (`src/types/place.ts`)
+
+Skema data tempat dibuat dinamis menggunakan TypeScript Discriminated Unions berdasarkan `category`:
+
+```ts
+export type PlaceCategory = "wisata" | "kuliner" | "akomodasi" | "lainnya";
+
+// Atribut Dasar (Semua Tipe)
+export interface BasePlace {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  lat: number;
+  lon: number;
+  imageUrl: string;
+  category: PlaceCategory;
+  openTime: string;   // misal "08:00"
+  closeTime: string;  // misal "17:00"
+  isOpen24Hours?: boolean;
+  rating: number;     // 1.0 - 5.0
+  totalReviews: number;
+  description: string;
+  facilities: string[];
+}
+
+// 1. Destinasi Wisata
+export interface WisataPlace extends BasePlace {
+  category: "wisata";
+  ticketPrice: number; // 0 jika gratis (dalam Rupiah)
+  ticketType: "per orang" | "per kendaraan" | "gratis";
+}
+
+// 2. Akomodasi (Hotel / Penginapan)
+export interface AkomodasiPlace extends BasePlace {
+  category: "akomodasi";
+  pricePerNight: number;  // Biaya sewa per malam
+  guestCapacity: number;  // Kapasitas orang per kamar
+  roomType: string;       // Contoh: "Deluxe King Room"
+  starRating: number;     // 1 sampai 5 bintang
+}
+
+// 3. Kuliner
+export interface KulinerPlace extends BasePlace {
+  category: "kuliner";
+  priceRangeMin: number;
+  priceRangeMax: number;
+  signatureMenu: string[];
+  isHalalCertified: boolean;
+}
+
+// 4. Lainnya (Hub Transportasi / Fasilitas Publik)
+export interface LainnyaPlace extends BasePlace {
+  category: "lainnya";
+  serviceType: string;
+  specificNote?: string;
+}
+```
+
+### 5.3. Endpoint Pengujian API Tempat (`src/app/api/destinasi/route.ts`)
+
+Menyediakan dua metode HTTP untuk pengujian *client-server*:
+- **`GET /api/destinasi`**: Mengembalikan daftar seluruh tempat di memori atau filter per kategori (`?category=wisata`).
+- **`POST /api/destinasi`**: Menerima payload JSON data tempat baru, memvalidasi kelengkapan atribut sesuai tipe kategori yang dipilih, dan mengembalikan respons HTTP `201 Created` beserta data yang berhasil disimpan.
+
+### 5.4. Service Auto-Enrichment & Foto Otomatis (`src/services/placeEnricher.ts`)
+- **Pencarian Cepat:** Menggunakan LocationIQ untuk memunculkan dropdown rekomendasi tempat secara *real-time*.
+- **Auto-Detect Category:** Mendeteksi kategori (`akomodasi`, `kuliner`, `wisata`, `lainnya`) berdasarkan metadata OSM `class` & `type`.
+- **Foto Otomatis Tanpa Input Manual:** Mengambil foto resolusi tinggi secara otomatis dari CDN Unsplash sesuai kategori dan nama tempat (field foto disembunyikan dari formulir agar pengguna tidak perlu memasukkan URL gambar).
+- **Auto-Fill Nilai Realistis:** Mengisi otomatis jam operasional, koordinat presisi, rentang harga, bintang, dan kapasitas tamu sehingga penambahan data bisa dilakukan dalam 1 klik.
+
 ---
 
 ## 6. Cara Menjalankan Proyek
+
+
+
 
 1. **Instalasi dependensi:**
    ```bash
