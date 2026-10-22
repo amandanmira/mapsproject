@@ -1,7 +1,7 @@
 import { NewPlaceInput, PlaceCategory } from "@/types/place";
+import { resolveAdultTicketPrice } from "@/services/ticketPricingApi";
 
 const LOCATIONIQ_SEARCH_ENDPOINT = "https://us1.locationiq.com/v1/search.php";
-
 
 export interface LocationIQPlaceDetail {
   place_id: string;
@@ -12,6 +12,10 @@ export interface LocationIQPlaceDetail {
   type?: string;
   address?: {
     name?: string;
+    hotel?: string;
+    tourism?: string;
+    amenity?: string;
+    historic?: string;
     road?: string;
     suburb?: string;
     neighbourhood?: string;
@@ -21,6 +25,16 @@ export interface LocationIQPlaceDetail {
     state?: string;
     country?: string;
     postcode?: string;
+  };
+  extratags?: {
+    stars?: string;
+    website?: string;
+    phone?: string;
+    opening_hours?: string;
+    cuisine?: string;
+    wikipedia?: string;
+    image?: string;
+    wikimedia_commons?: string;
   };
 }
 
@@ -34,10 +48,11 @@ export interface EnrichedPlaceSuggestion {
   detectedCategory: PlaceCategory;
   rawType?: string;
   rawClass?: string;
+  extratags?: LocationIQPlaceDetail["extratags"];
 }
 
 /**
- * Mendeteksi kategori tempat secara otomatis berdasarkan class & type OpenStreetMap / LocationIQ
+ * 1. Deteksi Kategori Tempat Dinamis dari OSM/LocationIQ
  */
 export function detectCategoryFromOSM(
   osmClass?: string,
@@ -48,7 +63,7 @@ export function detectCategoryFromOSM(
   const cls = (osmClass || "").toLowerCase();
   const lowerName = (name || "").toLowerCase();
 
-  // 1. Cek Akomodasi / Hotel
+  // Akomodasi / Penginapan
   if (
     [
       "hotel",
@@ -61,7 +76,7 @@ export function detectCategoryFromOSM(
       "chalet",
       "camp_site",
     ].includes(type) ||
-    cls === "tourism" && type === "hotel" ||
+    (cls === "tourism" && type === "hotel") ||
     lowerName.includes("hotel") ||
     lowerName.includes("resort") ||
     lowerName.includes("villa") ||
@@ -71,7 +86,7 @@ export function detectCategoryFromOSM(
     return "akomodasi";
   }
 
-  // 2. Cek Kuliner
+  // Kuliner / Restoran / Kafe
   if (
     [
       "restaurant",
@@ -83,7 +98,8 @@ export function detectCategoryFromOSM(
       "bakery",
       "ice_cream",
     ].includes(type) ||
-    cls === "amenity" && ["restaurant", "cafe", "food_court"].includes(type) ||
+    (cls === "amenity" &&
+      ["restaurant", "cafe", "food_court"].includes(type)) ||
     lowerName.includes("restoran") ||
     lowerName.includes("resto") ||
     lowerName.includes("warung") ||
@@ -98,7 +114,7 @@ export function detectCategoryFromOSM(
     return "kuliner";
   }
 
-  // 3. Cek Lainnya (Hub Transportasi / Stasiun / Bandara / Fasilitas Publik)
+  // Transportasi & Layanan Publik
   if (
     [
       "station",
@@ -122,72 +138,29 @@ export function detectCategoryFromOSM(
     return "lainnya";
   }
 
-  // 4. Default: Destinasi Wisata
+  // Default: Destinasi Wisata
   return "wisata";
 }
 
 /**
- * Mengambil URL foto otomatis beresolusi tinggi berdasarkan kategori dan kata kunci nama tempat
+ * 2. Gambar Representatif Kategori (karena OSM/LocationIQ tidak menyimpan galeri foto komersial)
  */
-export function getAutomaticPlaceImage(
-  name: string,
-  category: PlaceCategory
-): string {
-  const lower = name.toLowerCase();
-
-  if (category === "akomodasi") {
-    if (lower.includes("tentrem") || lower.includes("phoenix") || lower.includes("heritage")) {
+export function getCategoryFallbackImage(category: PlaceCategory): string {
+  switch (category) {
+    case "akomodasi":
       return "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1000&q=80";
-    }
-    if (lower.includes("alila") || lower.includes("resort") || lower.includes("suite")) {
-      return "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1000&q=80";
-    }
-    if (lower.includes("pool") || lower.includes("villa")) {
-      return "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=1000&q=80";
-    }
-    // Default luxury hotel room
-    return "https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=1000&q=80";
-  }
-
-  if (category === "kuliner") {
-    if (lower.includes("kopi") || lower.includes("cafe") || lower.includes("kafe")) {
-      return "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=1000&q=80";
-    }
-    if (lower.includes("gudeg") || lower.includes("traditional") || lower.includes("nusantara")) {
+    case "kuliner":
       return "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1000&q=80";
-    }
-    return "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&w=1000&q=80";
-  }
-
-  if (category === "lainnya") {
-    if (lower.includes("stasiun") || lower.includes("train") || lower.includes("balapan") || lower.includes("tugu")) {
+    case "lainnya":
       return "https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?auto=format&fit=crop&w=1000&q=80";
-    }
-    if (lower.includes("bandara") || lower.includes("airport")) {
-      return "https://images.unsplash.com/photo-1530521954074-e64f6810b32d?auto=format&fit=crop&w=1000&q=80";
-    }
-    return "https://images.unsplash.com/photo-1517649763962-0c623266ddc0?auto=format&fit=crop&w=1000&q=80";
+    case "wisata":
+    default:
+      return "https://images.unsplash.com/photo-1588668214407-6ea9a6d8c272?auto=format&fit=crop&w=1000&q=80";
   }
-
-  // Destinasi Wisata
-  if (lower.includes("candi") || lower.includes("prambanan") || lower.includes("borobudur")) {
-    return "https://images.unsplash.com/photo-1588668214407-6ea9a6d8c272?auto=format&fit=crop&w=1000&q=80";
-  }
-  if (lower.includes("pantai") || lower.includes("beach") || lower.includes("laut")) {
-    return "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80";
-  }
-  if (lower.includes("gunung") || lower.includes("bukit") || lower.includes("merapi")) {
-    return "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1000&q=80";
-  }
-  if (lower.includes("museum") || lower.includes("monumen") || lower.includes("monjali") || lower.includes("keraton")) {
-    return "https://images.unsplash.com/photo-1596402184320-417e7178b2cd?auto=format&fit=crop&w=1000&q=80";
-  }
-
-  return "https://images.unsplash.com/photo-1544644181-1484b3fdfc62?auto=format&fit=crop&w=1000&q=80";
 }
 
 /**
- * Mencari rekomendasi tempat ke LocationIQ lengkap dengan detail tipe dan komponen alamat
+ * 3. Pencarian Tempat Lengkap ke LocationIQ API dengan extratags (Stars, Website, Phone, dll)
  */
 export async function searchPlacesDetailed(
   query: string,
@@ -211,6 +184,7 @@ export async function searchPlacesDetailed(
   url.searchParams.set("q", trimmed);
   url.searchParams.set("format", "json");
   url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("extratags", "1");
   url.searchParams.set("limit", limit.toString());
 
   const response = await fetch(url.toString(), {
@@ -221,7 +195,9 @@ export async function searchPlacesDetailed(
   if (!response.ok) {
     if (response.status === 404) return [];
     if (response.status === 429) {
-      throw new Error("Rate limit LocationIQ tercapai. Mohon tunggu beberapa detik.");
+      throw new Error(
+        "Rate limit LocationIQ tercapai. Mohon tunggu beberapa detik."
+      );
     }
     return [];
   }
@@ -231,10 +207,16 @@ export async function searchPlacesDetailed(
 
   return data.map((item) => {
     const rawParts = item.display_name.split(",").map((s) => s.trim());
-    const name = rawParts[0] || item.display_name;
+    const name =
+      item.address?.hotel ||
+      item.address?.tourism ||
+      item.address?.amenity ||
+      item.address?.historic ||
+      rawParts[0] ||
+      item.display_name;
+
     const address = rawParts.slice(1, 4).join(", ") || item.display_name;
 
-    // Ambil nama kota dari komponen address
     const city =
       item.address?.city ||
       item.address?.town ||
@@ -259,19 +241,30 @@ export async function searchPlacesDetailed(
       detectedCategory,
       rawType: item.type,
       rawClass: item.class,
+      extratags: item.extratags,
     };
   });
 }
 
 /**
- * Membangun objek data tempat lengkap (smart default) dari hasil seleksi autocomplete
+ * 4. Mengonstruksi Objek Tempat Otomatis dari Hasil Response LocationIQ API
  */
 export function buildPlaceFromSuggestion(
   suggestion: EnrichedPlaceSuggestion
 ): NewPlaceInput {
-  const { name, address, city, lat, lon, detectedCategory } = suggestion;
-  const imageUrl = getAutomaticPlaceImage(name, detectedCategory);
+  const { name, address, city, lat, lon, detectedCategory, extratags } =
+    suggestion;
 
+  // Foto: Ambil dari extratags LocationIQ jika ada di OSM, atau gambar representatif kategori
+  const imageUrl =
+    extratags?.image ||
+    getCategoryFallbackImage(detectedCategory);
+
+  const description = `${name} merupakan tempat berkategori ${detectedCategory} yang berlokasi di ${address}, ${city}.`;
+
+  // Bintang Hotel: Ambil langsung dari LocationIQ extratags jika tersedia
+  const osmStars = extratags?.stars ? parseInt(extratags.stars) : undefined;
+  const starRating = osmStars && osmStars >= 1 && osmStars <= 5 ? osmStars : 4;
 
   const base = {
     name,
@@ -283,65 +276,59 @@ export function buildPlaceFromSuggestion(
     category: detectedCategory,
     rating: 4.8,
     totalReviews: Math.floor(Math.random() * 400) + 120,
+    description,
+    contact: extratags?.phone || extratags?.website || "(0274) 555-0000",
   };
 
+  // AKOMODASI (HOTEL)
   if (detectedCategory === "akomodasi") {
-    const isFiveStar =
-      name.toLowerCase().includes("tentrem") ||
-      name.toLowerCase().includes("alila") ||
-      name.toLowerCase().includes("phoenix") ||
-      name.toLowerCase().includes("grand") ||
-      name.toLowerCase().includes("resort");
-
     return {
       ...base,
       category: "akomodasi",
       openTime: "00:00",
       closeTime: "23:59",
       isOpen24Hours: true,
-      pricePerNight: isFiveStar ? 1650000 : 750000,
+      pricePerNight: starRating === 5 ? 1500000 : 750000,
       guestCapacity: 2,
-      roomType: isFiveStar ? "Executive Suite (48 sqm)" : "Deluxe King Room",
-      starRating: isFiveStar ? 5 : 4,
+      roomType: starRating === 5 ? "Executive Suite Room" : "Deluxe King Room",
+      starRating,
       hasFreeBreakfast: true,
-      description: `Akomodasi hotel berbintang di ${city} dengan fasilitas kamar premium, pelayanan ramah, dan lokasi strategis.`,
       facilities: [
         "Kolam Renang",
         "WiFi Kecepatan Tinggi",
         "Sarapan Prasmanan",
-        "Spa & Kebugaran",
-        "Valet Parking",
+        "Layanan Kamar 24 Jam",
+        "Area Parkir & Valet",
       ],
-      contact: "(0274) 555-1234",
     };
   }
 
+  // KULINER
   if (detectedCategory === "kuliner") {
     return {
       ...base,
       category: "kuliner",
-      openTime: "09:00",
+      openTime: extratags?.opening_hours ? "10:00" : "09:00",
       closeTime: "22:00",
       isOpen24Hours: false,
       priceRangeMin: 20000,
       priceRangeMax: 65000,
       signatureMenu: [
         `Menu Spesial ${name}`,
-        "Minuman Tradisional Segar",
+        "Minuman Tradisional",
         "Hidangan Penutup Khas",
       ],
       isHalalCertified: true,
-      description: `Destinasi kuliner ${name} di ${city} yang menyajikan aneka sajian khas dengan cita rasa otentik dan suasana nyaman.`,
       facilities: [
         "Ruang Makan Ber-AC",
         "Pembayaran QRIS & Debit",
-        "Area Parkir Mobil",
+        "Area Parkir",
         "Layanan Pesan Antar",
       ],
-      contact: "(0274) 888-5678",
     };
   }
 
+  // LAINNYA / TRANSPORTASI
   if (detectedCategory === "lainnya") {
     return {
       ...base,
@@ -352,35 +339,37 @@ export function buildPlaceFromSuggestion(
       serviceType: suggestion.rawType
         ? `Layanan ${suggestion.rawType}`
         : "Hub Transportasi & Layanan Publik",
-      specificNote: "Simpul mobilitas dan akses publik terintegrasi di kawasan sekitar.",
-      description: `Fasilitas publik ${name} di ${city} yang melayani mobilitas dan aktivitas harian masyarakat secara efisien.`,
+      specificNote: "Simpul mobilitas publik terintegrasi di kawasan sekitar.",
       facilities: [
-        "Ruang Tunggu Ber-AC",
-        "Toilet & Mushola Bersih",
+        "Ruang Tunggu Penumpang",
+        "Toilet & Mushola",
         "Loket Informasi & Tiket",
-        "Koneksi Transportasi Umum",
+        "Akses Transportasi Umum",
       ],
-      contact: "121",
     };
   }
 
-  // Destinasi Wisata
+  // DESTINASI WISATA
+  const ticketInfo = resolveAdultTicketPrice(
+    name,
+    extratags as Record<string, string | undefined> | undefined,
+    suggestion.rawType
+  );
+
   return {
     ...base,
     category: "wisata",
-    openTime: "08:00",
+    openTime: extratags?.opening_hours ? "08:00" : "08:00",
     closeTime: "17:00",
     isOpen24Hours: false,
-    ticketPrice: 25000,
-    ticketType: "per orang",
+    ticketPrice: ticketInfo.price,
+    ticketType: ticketInfo.ticketType,
     recommendedVisitDuration: "2 - 3 jam",
-    description: `Destinasi wisata ${name} di ${city} yang menawarkan panorama memukau, nilai sejarah, serta berbagai spot foto menarik.`,
     facilities: [
       "Area Parkir Luas",
       "Pemandu Wisata",
       "Toilet & Tempat Ibadah",
       "Kantin & Toko Souvenir",
     ],
-    contact: "(0274) 496-0000",
   };
 }

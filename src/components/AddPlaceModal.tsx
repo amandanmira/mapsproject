@@ -522,10 +522,12 @@ export default function AddPlaceModal({
                       <>
                         <div className="p-2 rounded-lg bg-emerald-50/70 border border-emerald-100">
                           <span className="text-[10px] text-emerald-700 font-semibold block">
-                            Harga Tiket
+                            Harga Tiket Dewasa
                           </span>
                           <span className="font-extrabold text-emerald-950">
-                            Rp {ticketPrice.toLocaleString("id-ID")} / {ticketType}
+                            {ticketPrice === 0
+                              ? "Gratis (Akses Terbuka)"
+                              : `Rp ${ticketPrice.toLocaleString("id-ID")} / ${ticketType}`}
                           </span>
                         </div>
                         <div className="p-2 rounded-lg bg-slate-100">
