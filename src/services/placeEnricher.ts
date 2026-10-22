@@ -1,5 +1,9 @@
 import { NewPlaceInput, PlaceCategory } from "@/types/place";
 import { resolveAdultTicketPrice } from "@/services/ticketPricingApi";
+import {
+  isGeoapifyConfigured,
+  geoapifySearchPlacesDetailed,
+} from "@/services/geoapifyService";
 
 const LOCATIONIQ_SEARCH_ENDPOINT = "https://us1.locationiq.com/v1/search.php";
 
@@ -160,23 +164,36 @@ export function getCategoryFallbackImage(category: PlaceCategory): string {
 }
 
 /**
- * 3. Pencarian Tempat Lengkap ke LocationIQ API dengan extratags (Stars, Website, Phone, dll)
+ * 3. Pencarian Tempat Lengkap ke Geoapify API (Fallback: LocationIQ API)
  */
 export async function searchPlacesDetailed(
   query: string,
   limit = 6
 ): Promise<EnrichedPlaceSuggestion[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) {
+    return [];
+  }
+
+  // 1. Prioritaskan Geoapify jika API Key tersedia
+  if (isGeoapifyConfigured()) {
+    try {
+      const geoapifyResults = await geoapifySearchPlacesDetailed(trimmed, limit);
+      if (geoapifyResults.length > 0) {
+        return geoapifyResults;
+      }
+    } catch (err) {
+      console.warn("Geoapify places search error, fallback ke LocationIQ:", err);
+    }
+  }
+
+  // 2. Fallback ke LocationIQ
   const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
 
   if (!apiKey || apiKey === "masukkan_api_key_locationiq_anda_disini") {
     throw new Error(
-      "Konfigurasi NEXT_PUBLIC_LOCATIONIQ_KEY belum diatur di file .env.local."
+      "Konfigurasi NEXT_PUBLIC_GEOAPIFY_KEY atau NEXT_PUBLIC_LOCATIONIQ_KEY belum diatur di file .env.local."
     );
-  }
-
-  const trimmed = query.trim();
-  if (trimmed.length < 2) {
-    return [];
   }
 
   const url = new URL(LOCATIONIQ_SEARCH_ENDPOINT);

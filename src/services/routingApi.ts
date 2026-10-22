@@ -4,6 +4,11 @@ import {
   OpenRouteServiceResponse,
   RouteResult,
 } from "@/types/routing";
+import {
+  isGeoapifyConfigured,
+  geoapifyAutocomplete,
+  geoapifyCalculateRoute,
+} from "@/services/geoapifyService";
 
 const LOCATIONIQ_SEARCH_ENDPOINT = "https://us1.locationiq.com/v1/search.php";
 const LOCATIONIQ_AUTOCOMPLETE_ENDPOINT =
@@ -45,24 +50,37 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
- * Mencari daftar rekomendasi lokasi (Autocomplete) menggunakan LocationIQ
+ * Mencari daftar rekomendasi lokasi (Autocomplete) menggunakan Geoapify (Fallback: LocationIQ)
  * Mengembalikan array opsi koordinat beserta nama & detail alamat
  */
 export async function searchLocationSuggestions(
   query: string,
   limit = 5
 ): Promise<Coordinates[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) {
+    return [];
+  }
+
+  // 1. Prioritaskan Geoapify jika API Key tersedia
+  if (isGeoapifyConfigured()) {
+    try {
+      const geoapifyResults = await geoapifyAutocomplete(trimmed, limit);
+      if (geoapifyResults.length > 0) {
+        return geoapifyResults;
+      }
+    } catch (err) {
+      console.warn("Geoapify autocomplete error, fallback ke LocationIQ:", err);
+    }
+  }
+
+  // 2. Fallback ke LocationIQ
   const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
 
   if (!apiKey || apiKey === "masukkan_api_key_locationiq_anda_disini") {
     throw new Error(
-      "Konfigurasi NEXT_PUBLIC_LOCATIONIQ_KEY belum diatur di file .env.local."
+      "Konfigurasi NEXT_PUBLIC_GEOAPIFY_KEY atau NEXT_PUBLIC_LOCATIONIQ_KEY belum diatur di file .env.local."
     );
-  }
-
-  const trimmed = query.trim();
-  if (trimmed.length < 2) {
-    return [];
   }
 
   // Coba gunakan autocomplete endpoint terlebih dahulu
@@ -244,7 +262,7 @@ export function calculateDurationFromSpeed(
 }
 
 /**
- * Menghitung jarak dan waktu tempuh darat (driving-car) menggunakan OpenRouteService API.
+ * Menghitung jarak dan waktu tempuh darat (driving-car) menggunakan Geoapify API (Fallback: OpenRouteService).
  * Waktu tempuh dihitung berdasarkan kecepatan rata-rata realistis (default: 40 km/jam).
  */
 export async function calculateDrivingRoute(
@@ -252,11 +270,21 @@ export async function calculateDrivingRoute(
   destination: Coordinates,
   averageSpeedKmH: number = DEFAULT_AVERAGE_SPEED_KMH
 ): Promise<RouteResult> {
+  // 1. Prioritaskan Geoapify jika API Key tersedia
+  if (isGeoapifyConfigured()) {
+    try {
+      return await geoapifyCalculateRoute(origin, destination, averageSpeedKmH);
+    } catch (err) {
+      console.warn("Geoapify routing error, fallback ke OpenRouteService:", err);
+    }
+  }
+
+  // 2. Fallback ke OpenRouteService
   const apiKey = process.env.NEXT_PUBLIC_ORS_KEY;
 
   if (!apiKey || apiKey === "masukkan_api_key_openrouteservice_anda_disini") {
     throw new Error(
-      "Konfigurasi NEXT_PUBLIC_ORS_KEY belum diatur di file .env.local."
+      "Konfigurasi NEXT_PUBLIC_GEOAPIFY_KEY atau NEXT_PUBLIC_ORS_KEY belum diatur di file .env.local."
     );
   }
 
