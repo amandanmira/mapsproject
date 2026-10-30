@@ -6,41 +6,68 @@ export interface Coordinates {
   subtext?: string;
 }
 
-export interface LocationIQPlace {
-  place_id: string;
-  lat: string;
-  lon: string;
-  display_name: string;
-  type?: string;
-  class?: string;
-  address?: {
+/**
+ * Respons dari Geoapify Geocoding Autocomplete API
+ * Endpoint: GET https://api.geoapify.com/v1/geocode/autocomplete
+ */
+export interface GeoapifyAutocompleteFeature {
+  type: string;
+  properties: {
     name?: string;
-    road?: string;
-    suburb?: string;
+    formatted: string;
+    address_line1?: string;
+    address_line2?: string;
+    lat: number;
+    lon: number;
     city?: string;
+    county?: string;
     state?: string;
-    country?: string;
-    postcode?: string;
+    suburb?: string;
+    category?: string;
+    result_type?: string;
+    datasource?: {
+      raw?: Record<string, unknown>;
+    };
+  };
+  geometry: {
+    type: string;
+    coordinates: [number, number]; // [lon, lat]
   };
 }
 
-export interface OpenRouteServiceResponse {
-  features?: Array<{
-    geometry?: {
-      type: string;
-      coordinates: [number, number][]; // [lon, lat][]
+export interface GeoapifyAutocompleteResponse {
+  type: string;
+  features: GeoapifyAutocompleteFeature[];
+}
+
+/**
+ * Respons dari Geoapify Routing API
+ * Endpoint: GET https://api.geoapify.com/v1/routing
+ */
+export interface GeoapifyRoutingResponse {
+  type: string;
+  features: Array<{
+    type: string;
+    properties: {
+      mode: string;
+      waypoints: Array<{ lat: number; lon: number }>;
+      distance: number; // dalam meter
+      time: number; // dalam detik
+      legs?: Array<{
+        distance: number;
+        time: number;
+        steps?: Array<{
+          distance: number;
+          time: number;
+          instruction?: { text: string };
+        }>;
+      }>;
     };
-    properties?: {
-      summary?: {
-        distance: number; // dalam meter
-        duration: number; // dalam detik
-      };
+    geometry: {
+      type: string;
+      coordinates: [number, number][] | [number, number][][]; // [lon, lat][]
     };
   }>;
-  error?: {
-    code?: number;
-    message?: string;
-  };
 }
 
 export interface RouteResult {
@@ -50,11 +77,9 @@ export interface RouteResult {
   durationSeconds: number; // durasi berdasarkan kecepatan rata-rata realistis (misal 40 km/jam)
   formattedDuration: string;
   averageSpeedKmH: number; // kecepatan rata-rata yang digunakan (km/jam)
-  orsDurationSeconds?: number; // durasi teoritis bawaan OpenRouteService (tanpa hambatan)
-  orsFormattedDuration?: string;
+  geoapifyDurationSeconds?: number; // durasi teoritis bawaan Geoapify Routing (tanpa hambatan)
+  geoapifyFormattedDuration?: string;
   routeGeometry?: [number, number][]; // [lat, lon][] untuk polyline Leaflet
 }
 
 export type MapFocusMode = "all" | "origin" | "destination";
-
-

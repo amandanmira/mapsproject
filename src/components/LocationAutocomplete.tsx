@@ -69,7 +69,7 @@ export default function LocationAutocomplete({
     };
   }, []);
 
-  // Fungsi pencarian ke LocationIQ
+  // Fungsi pencarian ke Geoapify
   const fetchSuggestions = async (queryText: string) => {
     const trimmed = queryText.trim();
     if (trimmed.length < 2) {

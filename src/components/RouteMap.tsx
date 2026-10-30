@@ -211,7 +211,7 @@ export default function RouteMap({
     }
 
     if (routeGeometry && routeGeometry.length > 0) {
-      // Buat polyline jalur darat yang dihitung OpenRouteService
+      // Buat polyline jalur darat yang dihitung Geoapify Routing
       const poly = L.polyline(routeGeometry, {
         color: "#4f46e5", // Indigo-600
         weight: 5,

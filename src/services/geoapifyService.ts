@@ -1,4 +1,9 @@
-import { Coordinates, RouteResult } from "@/types/routing";
+import {
+  Coordinates,
+  RouteResult,
+  GeoapifyAutocompleteResponse,
+  GeoapifyRoutingResponse,
+} from "@/types/routing";
 import { EnrichedPlaceSuggestion } from "@/services/placeEnricher";
 import { PlaceCategory } from "@/types/place";
 
@@ -63,24 +68,36 @@ export async function geoapifyAutocomplete(
   url.searchParams.set("filter", "countrycode:id");
   url.searchParams.set("limit", limit.toString());
 
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  } catch {
+    throw new Error(
+      "Gagal terhubung ke server Geoapify. Periksa koneksi internet Anda."
+    );
+  }
 
   if (!response.ok) {
     if (response.status === 404) return [];
     if (response.status === 429) {
       throw new Error("Batas kuota harian Geoapify tercapai. Silakan tunggu beberapa saat.");
     }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        "API Key Geoapify tidak valid atau akses ditolak. Periksa kembali NEXT_PUBLIC_GEOAPIFY_KEY Anda."
+      );
+    }
     throw new Error(`Geoapify Geocoding error (Status: ${response.status})`);
   }
 
-  const data = await response.json();
+  const data: GeoapifyAutocompleteResponse = await response.json();
   const features = data?.features || [];
 
   return features
-    .map((feat: any) => {
+    .map((feat) => {
       const p = feat.properties;
       if (!p || typeof p.lat !== "number" || typeof p.lon !== "number") return null;
 
@@ -95,11 +112,35 @@ export async function geoapifyAutocomplete(
         subtext,
       } as Coordinates;
     })
-    .filter((item: any): item is Coordinates => item !== null);
+    .filter((item): item is Coordinates => item !== null);
 }
 
 /**
- * 2. Menghitung Rute Jalur Darat (Driving) menggunakan Geoapify Routing API
+ * 2. Geocode Lokasi — mengambil koordinat dari nama lokasi (menggunakan Geoapify)
+ * Mengembalikan koordinat terbaik (hasil pertama) dari pencarian
+ */
+export async function geoapifyGeocode(
+  locationQuery: string,
+  fieldLabel: string
+): Promise<Coordinates> {
+  const trimmedQuery = locationQuery.trim();
+  if (!trimmedQuery) {
+    throw new Error(`Nama ${fieldLabel} tidak boleh kosong.`);
+  }
+
+  const results = await geoapifyAutocomplete(trimmedQuery, 1);
+
+  if (results.length === 0) {
+    throw new Error(
+      `${fieldLabel} "${trimmedQuery}" tidak ditemukan. Pastikan ejaan nama lokasi sudah benar.`
+    );
+  }
+
+  return results[0];
+}
+
+/**
+ * 3. Menghitung Rute Jalur Darat (Driving) menggunakan Geoapify Routing API
  * Menghasilkan jarak km, waktu tempuh, dan polyline rute Leaflet
  */
 export async function geoapifyCalculateRoute(
@@ -117,19 +158,36 @@ export async function geoapifyCalculateRoute(
   url.searchParams.set("mode", "drive");
   url.searchParams.set("apiKey", apiKey);
 
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  } catch {
+    throw new Error(
+      "Gagal terhubung ke server Geoapify Routing. Periksa koneksi internet Anda."
+    );
+  }
 
   if (!response.ok) {
     if (response.status === 429) {
       throw new Error("Batas kuota harian Geoapify Routing tercapai.");
     }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        "API Key Geoapify tidak valid atau tidak memiliki izin akses."
+      );
+    }
+    if (response.status === 404) {
+      throw new Error(
+        "Rute jalur darat (mobil) tidak ditemukan di antara kedua lokasi tersebut (mungkin terpisah laut/pulau tanpa jalur darat)."
+      );
+    }
     throw new Error(`Geoapify Routing gagal menghitung rute (Status: ${response.status}).`);
   }
 
-  const data = await response.json();
+  const data: GeoapifyRoutingResponse = await response.json();
   const feature = data?.features?.[0];
 
   if (!feature || !feature.properties) {
@@ -149,7 +207,7 @@ export async function geoapifyCalculateRoute(
 
   // Ekstraksi geometry polyline untuk peta Leaflet (format: [ [lon, lat], ... ])
   const coordinatesList = feature.geometry?.coordinates?.[0] || feature.geometry?.coordinates || [];
-  const routeGeometry: [number, number][] = coordinatesList.map(
+  const routeGeometry: [number, number][] = (coordinatesList as [number, number][]).map(
     ([lon, lat]: [number, number]) => [lat, lon]
   );
 
@@ -160,8 +218,8 @@ export async function geoapifyCalculateRoute(
     durationSeconds,
     formattedDuration,
     averageSpeedKmH,
-    orsDurationSeconds: rawDurationSeconds,
-    orsFormattedDuration: formattedRawDuration,
+    geoapifyDurationSeconds: rawDurationSeconds,
+    geoapifyFormattedDuration: formattedRawDuration,
     routeGeometry,
   };
 }
@@ -230,7 +288,7 @@ export function mapGeoapifyCategory(
 }
 
 /**
- * 3. Pencarian Tempat Destinasi Lengkap dengan Geoapify untuk Modal Tambah Tempat
+ * 4. Pencarian Tempat Destinasi Lengkap dengan Geoapify untuk Modal Tambah Tempat
  */
 export async function geoapifySearchPlacesDetailed(
   query: string,
@@ -247,18 +305,25 @@ export async function geoapifySearchPlacesDetailed(
   url.searchParams.set("filter", "countrycode:id");
   url.searchParams.set("limit", limit.toString());
 
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  } catch {
+    throw new Error(
+      "Gagal terhubung ke server Geoapify. Periksa koneksi internet Anda."
+    );
+  }
 
   if (!response.ok) return [];
 
-  const data = await response.json();
+  const data: GeoapifyAutocompleteResponse = await response.json();
   const features = data?.features || [];
 
   return features
-    .map((feat: any) => {
+    .map((feat) => {
       const p = feat.properties;
       if (!p || typeof p.lat !== "number" || typeof p.lon !== "number") return null;
 
@@ -280,5 +345,5 @@ export async function geoapifySearchPlacesDetailed(
         extratags: p.datasource?.raw,
       } as EnrichedPlaceSuggestion;
     })
-    .filter((item: any): item is EnrichedPlaceSuggestion => item !== null);
+    .filter((item): item is EnrichedPlaceSuggestion => item !== null);
 }

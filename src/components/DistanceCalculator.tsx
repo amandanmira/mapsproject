@@ -128,7 +128,7 @@ export default function DistanceCalculator() {
     }
 
     try {
-      setLoadingStep("Menghitung jarak & jalur rute darat (OpenRouteService)...");
+      setLoadingStep("Menghitung jarak & jalur rute darat (Geoapify)...");
 
       const routeMetrics = await calculateDrivingRoute(
         origin,
@@ -436,9 +436,9 @@ export default function DistanceCalculator() {
                 <p className="text-2xl font-bold text-slate-900 mt-0.5">
                   {result.formattedDuration}
                 </p>
-                {result.orsFormattedDuration && (
+                {result.geoapifyFormattedDuration && (
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    (Teoritis bebas hambatan: ~{result.orsFormattedDuration})
+                    (Teoritis bebas hambatan: ~{result.geoapifyFormattedDuration})
                   </p>
                 )}
               </div>

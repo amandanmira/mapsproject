@@ -119,7 +119,7 @@ export function resolveAdultTicketPrice(
     }
   }
 
-  // 2. Cek apakah ada tag OSM 'charge' atau 'fee' dari LocationIQ
+  // 2. Cek apakah ada tag OSM 'charge' atau 'fee' dari Geoapify/OSM
   if (extratags) {
     const feeTag = extratags["fee:adult"] || extratags["charge"] || extratags["fee"];
     if (feeTag) {

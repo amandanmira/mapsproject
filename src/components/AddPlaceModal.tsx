@@ -377,7 +377,7 @@ export default function AddPlaceModal({
                 {isSearching && suggestions.length === 0 && (
                   <div className="flex items-center justify-center gap-2 py-6 text-xs text-slate-500">
                     <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-                    <span>Mencari data lengkap dari LocationIQ...</span>
+                    <span>Mencari data lengkap dari Geoapify...</span>
                   </div>
                 )}
 

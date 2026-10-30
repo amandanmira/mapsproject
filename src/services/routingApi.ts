@@ -1,20 +1,21 @@
 import {
   Coordinates,
-  LocationIQPlace,
-  OpenRouteServiceResponse,
   RouteResult,
 } from "@/types/routing";
 import {
-  isGeoapifyConfigured,
   geoapifyAutocomplete,
+  geoapifyGeocode,
   geoapifyCalculateRoute,
 } from "@/services/geoapifyService";
 
-const LOCATIONIQ_SEARCH_ENDPOINT = "https://us1.locationiq.com/v1/search.php";
-const LOCATIONIQ_AUTOCOMPLETE_ENDPOINT =
-  "https://us1.locationiq.com/v1/autocomplete.php";
-const ORS_DIRECTIONS_ENDPOINT =
-  "https://api.openrouteservice.org/v2/directions/driving-car";
+// ============================================================================
+// [BACKUP] Endpoint LocationIQ & OpenRouteService (dikomentari — uncomment jika ingin fallback)
+// ============================================================================
+// const LOCATIONIQ_SEARCH_ENDPOINT = "https://us1.locationiq.com/v1/search.php";
+// const LOCATIONIQ_AUTOCOMPLETE_ENDPOINT =
+//   "https://us1.locationiq.com/v1/autocomplete.php";
+// const ORS_DIRECTIONS_ENDPOINT =
+//   "https://api.openrouteservice.org/v2/directions/driving-car";
 
 /**
  * Memecah display_name menjadi judul utama dan rincian alamat
@@ -50,7 +51,7 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
- * Mencari daftar rekomendasi lokasi (Autocomplete) menggunakan Geoapify (Fallback: LocationIQ)
+ * Mencari daftar rekomendasi lokasi (Autocomplete) menggunakan Geoapify API
  * Mengembalikan array opsi koordinat beserta nama & detail alamat
  */
 export async function searchLocationSuggestions(
@@ -62,183 +63,182 @@ export async function searchLocationSuggestions(
     return [];
   }
 
-  // 1. Prioritaskan Geoapify jika API Key tersedia
-  if (isGeoapifyConfigured()) {
-    try {
-      const geoapifyResults = await geoapifyAutocomplete(trimmed, limit);
-      if (geoapifyResults.length > 0) {
-        return geoapifyResults;
-      }
-    } catch (err) {
-      console.warn("Geoapify autocomplete error, fallback ke LocationIQ:", err);
-    }
-  }
+  // Menggunakan Geoapify Autocomplete API
+  return await geoapifyAutocomplete(trimmed, limit);
 
-  // 2. Fallback ke LocationIQ
-  const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
-
-  if (!apiKey || apiKey === "masukkan_api_key_locationiq_anda_disini") {
-    throw new Error(
-      "Konfigurasi NEXT_PUBLIC_GEOAPIFY_KEY atau NEXT_PUBLIC_LOCATIONIQ_KEY belum diatur di file .env.local."
-    );
-  }
-
-  // Coba gunakan autocomplete endpoint terlebih dahulu
-  const url = new URL(LOCATIONIQ_AUTOCOMPLETE_ENDPOINT);
-  url.searchParams.set("key", apiKey);
-  url.searchParams.set("q", trimmed);
-  url.searchParams.set("limit", limit.toString());
-  url.searchParams.set("format", "json");
-  url.searchParams.set("dedupe", "1");
-
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
-
-    // Fallback ke search.php jika autocomplete ditolak / status bukan ok
-    if (!response.ok && response.status !== 404 && response.status !== 429) {
-      const fallbackUrl = new URL(LOCATIONIQ_SEARCH_ENDPOINT);
-      fallbackUrl.searchParams.set("key", apiKey);
-      fallbackUrl.searchParams.set("q", trimmed);
-      fallbackUrl.searchParams.set("limit", limit.toString());
-      fallbackUrl.searchParams.set("format", "json");
-      response = await fetch(fallbackUrl.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-    }
-  } catch {
-    throw new Error(
-      "Gagal terhubung ke layanan LocationIQ. Periksa koneksi internet Anda."
-    );
-  }
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      return [];
-    }
-    if (response.status === 429) {
-      throw new Error(
-        "Rate limit LocationIQ tercapai. Mohon tunggu beberapa detik."
-      );
-    }
-    return [];
-  }
-
-  const data: LocationIQPlace[] = await response.json().catch(() => []);
-
-  if (!Array.isArray(data)) {
-    return [];
-  }
-
-  return data
-    .map((item) => {
-      const lat = parseFloat(item.lat);
-      const lon = parseFloat(item.lon);
-      if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
-
-      const { name, subtext } = parseDisplayName(item.display_name);
-
-      return {
-        lat,
-        lon,
-        displayName: item.display_name,
-        name,
-        subtext,
-      } as Coordinates;
-    })
-    .filter((item): item is Coordinates => item !== null);
+  // ============================================================================
+  // [BACKUP] Fallback ke LocationIQ Autocomplete (uncomment jika Geoapify tidak tersedia)
+  // ============================================================================
+  // const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
+  //
+  // if (!apiKey || apiKey === "masukkan_api_key_locationiq_anda_disini") {
+  //   throw new Error(
+  //     "Konfigurasi NEXT_PUBLIC_LOCATIONIQ_KEY belum diatur di file .env.local."
+  //   );
+  // }
+  //
+  // // Coba gunakan autocomplete endpoint terlebih dahulu
+  // const url = new URL(LOCATIONIQ_AUTOCOMPLETE_ENDPOINT);
+  // url.searchParams.set("key", apiKey);
+  // url.searchParams.set("q", trimmed);
+  // url.searchParams.set("limit", limit.toString());
+  // url.searchParams.set("format", "json");
+  // url.searchParams.set("dedupe", "1");
+  //
+  // let response: Response;
+  // try {
+  //   response = await fetch(url.toString(), {
+  //     method: "GET",
+  //     headers: { Accept: "application/json" },
+  //   });
+  //
+  //   // Fallback ke search.php jika autocomplete ditolak / status bukan ok
+  //   if (!response.ok && response.status !== 404 && response.status !== 429) {
+  //     const fallbackUrl = new URL(LOCATIONIQ_SEARCH_ENDPOINT);
+  //     fallbackUrl.searchParams.set("key", apiKey);
+  //     fallbackUrl.searchParams.set("q", trimmed);
+  //     fallbackUrl.searchParams.set("limit", limit.toString());
+  //     fallbackUrl.searchParams.set("format", "json");
+  //     response = await fetch(fallbackUrl.toString(), {
+  //       method: "GET",
+  //       headers: { Accept: "application/json" },
+  //     });
+  //   }
+  // } catch {
+  //   throw new Error(
+  //     "Gagal terhubung ke layanan LocationIQ. Periksa koneksi internet Anda."
+  //   );
+  // }
+  //
+  // if (!response.ok) {
+  //   if (response.status === 404) {
+  //     return [];
+  //   }
+  //   if (response.status === 429) {
+  //     throw new Error(
+  //       "Rate limit LocationIQ tercapai. Mohon tunggu beberapa detik."
+  //     );
+  //   }
+  //   return [];
+  // }
+  //
+  // const data = await response.json().catch(() => []);
+  //
+  // if (!Array.isArray(data)) {
+  //   return [];
+  // }
+  //
+  // return data
+  //   .map((item: any) => {
+  //     const lat = parseFloat(item.lat);
+  //     const lon = parseFloat(item.lon);
+  //     if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+  //
+  //     const { name, subtext } = parseDisplayName(item.display_name);
+  //
+  //     return {
+  //       lat,
+  //       lon,
+  //       displayName: item.display_name,
+  //       name,
+  //       subtext,
+  //     } as Coordinates;
+  //   })
+  //   .filter((item: any): item is Coordinates => item !== null);
 }
 
 /**
- * Mengambil koordinat Latitude & Longitude dari nama lokasi menggunakan LocationIQ API
+ * Mengambil koordinat Latitude & Longitude dari nama lokasi menggunakan Geoapify API
  */
 export async function geocodeLocation(
   locationQuery: string,
   fieldLabel: string
 ): Promise<Coordinates> {
-  const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
+  // Menggunakan Geoapify Geocode
+  return await geoapifyGeocode(locationQuery, fieldLabel);
 
-  if (!apiKey || apiKey === "masukkan_api_key_locationiq_anda_disini") {
-    throw new Error(
-      "Konfigurasi NEXT_PUBLIC_LOCATIONIQ_KEY belum diatur di file .env.local."
-    );
-  }
-
-  const trimmedQuery = locationQuery.trim();
-  if (!trimmedQuery) {
-    throw new Error(`Nama ${fieldLabel} tidak boleh kosong.`);
-  }
-
-  const url = new URL(LOCATIONIQ_SEARCH_ENDPOINT);
-  url.searchParams.set("key", apiKey);
-  url.searchParams.set("q", trimmedQuery);
-  url.searchParams.set("format", "json");
-  url.searchParams.set("limit", "1");
-
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-    });
-  } catch {
-    throw new Error(
-      `Gagal terhubung ke server LocationIQ saat mencari ${fieldLabel}. Periksa koneksi internet Anda.`
-    );
-  }
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error(
-        `${fieldLabel} "${trimmedQuery}" tidak ditemukan. Coba gunakan nama kota atau alamat yang lebih spesifik.`
-      );
-    }
-    if (response.status === 429) {
-      throw new Error(
-        "Batas kuota (Rate Limit) API LocationIQ telah tercapai. Silakan tunggu beberapa saat lalu coba lagi."
-      );
-    }
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(
-        "API Key LocationIQ tidak valid atau akses ditolak. Periksa kembali NEXT_PUBLIC_LOCATIONIQ_KEY Anda."
-      );
-    }
-    throw new Error(
-      `Terjadi kesalahan pada layanan LocationIQ (Status: ${response.status}).`
-    );
-  }
-
-  const data: LocationIQPlace[] = await response.json();
-
-  if (!Array.isArray(data) || data.length === 0) {
-    throw new Error(
-      `${fieldLabel} "${trimmedQuery}" tidak ditemukan. Pastikan ejaan nama lokasi sudah benar.`
-    );
-  }
-
-  const bestMatch = data[0];
-  const lat = parseFloat(bestMatch.lat);
-  const lon = parseFloat(bestMatch.lon);
-
-  if (Number.isNaN(lat) || Number.isNaN(lon)) {
-    throw new Error(`Koordinat untuk ${fieldLabel} tidak valid.`);
-  }
-
-  const { name, subtext } = parseDisplayName(bestMatch.display_name);
-
-  return {
-    lat,
-    lon,
-    displayName: bestMatch.display_name,
-    name,
-    subtext,
-  };
+  // ============================================================================
+  // [BACKUP] Geocoding via LocationIQ (uncomment jika Geoapify tidak tersedia)
+  // ============================================================================
+  // const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
+  //
+  // if (!apiKey || apiKey === "masukkan_api_key_locationiq_anda_disini") {
+  //   throw new Error(
+  //     "Konfigurasi NEXT_PUBLIC_LOCATIONIQ_KEY belum diatur di file .env.local."
+  //   );
+  // }
+  //
+  // const trimmedQuery = locationQuery.trim();
+  // if (!trimmedQuery) {
+  //   throw new Error(`Nama ${fieldLabel} tidak boleh kosong.`);
+  // }
+  //
+  // const url = new URL(LOCATIONIQ_SEARCH_ENDPOINT);
+  // url.searchParams.set("key", apiKey);
+  // url.searchParams.set("q", trimmedQuery);
+  // url.searchParams.set("format", "json");
+  // url.searchParams.set("limit", "1");
+  //
+  // let response: Response;
+  // try {
+  //   response = await fetch(url.toString(), {
+  //     method: "GET",
+  //     headers: {
+  //       Accept: "application/json",
+  //     },
+  //   });
+  // } catch {
+  //   throw new Error(
+  //     `Gagal terhubung ke server LocationIQ saat mencari ${fieldLabel}. Periksa koneksi internet Anda.`
+  //   );
+  // }
+  //
+  // if (!response.ok) {
+  //   if (response.status === 404) {
+  //     throw new Error(
+  //       `${fieldLabel} "${trimmedQuery}" tidak ditemukan. Coba gunakan nama kota atau alamat yang lebih spesifik.`
+  //     );
+  //   }
+  //   if (response.status === 429) {
+  //     throw new Error(
+  //       "Batas kuota (Rate Limit) API LocationIQ telah tercapai. Silakan tunggu beberapa saat lalu coba lagi."
+  //     );
+  //   }
+  //   if (response.status === 401 || response.status === 403) {
+  //     throw new Error(
+  //       "API Key LocationIQ tidak valid atau akses ditolak. Periksa kembali NEXT_PUBLIC_LOCATIONIQ_KEY Anda."
+  //     );
+  //   }
+  //   throw new Error(
+  //     `Terjadi kesalahan pada layanan LocationIQ (Status: ${response.status}).`
+  //   );
+  // }
+  //
+  // const data = await response.json();
+  //
+  // if (!Array.isArray(data) || data.length === 0) {
+  //   throw new Error(
+  //     `${fieldLabel} "${trimmedQuery}" tidak ditemukan. Pastikan ejaan nama lokasi sudah benar.`
+  //   );
+  // }
+  //
+  // const bestMatch = data[0];
+  // const lat = parseFloat(bestMatch.lat);
+  // const lon = parseFloat(bestMatch.lon);
+  //
+  // if (Number.isNaN(lat) || Number.isNaN(lon)) {
+  //   throw new Error(`Koordinat untuk ${fieldLabel} tidak valid.`);
+  // }
+  //
+  // const { name, subtext } = parseDisplayName(bestMatch.display_name);
+  //
+  // return {
+  //   lat,
+  //   lon,
+  //   displayName: bestMatch.display_name,
+  //   name,
+  //   subtext,
+  // };
 }
 
 export const DEFAULT_AVERAGE_SPEED_KMH = 40;
@@ -262,7 +262,7 @@ export function calculateDurationFromSpeed(
 }
 
 /**
- * Menghitung jarak dan waktu tempuh darat (driving-car) menggunakan Geoapify API (Fallback: OpenRouteService).
+ * Menghitung jarak dan waktu tempuh darat (driving-car) menggunakan Geoapify Routing API.
  * Waktu tempuh dihitung berdasarkan kecepatan rata-rata realistis (default: 40 km/jam).
  */
 export async function calculateDrivingRoute(
@@ -270,114 +270,106 @@ export async function calculateDrivingRoute(
   destination: Coordinates,
   averageSpeedKmH: number = DEFAULT_AVERAGE_SPEED_KMH
 ): Promise<RouteResult> {
-  // 1. Prioritaskan Geoapify jika API Key tersedia
-  if (isGeoapifyConfigured()) {
-    try {
-      return await geoapifyCalculateRoute(origin, destination, averageSpeedKmH);
-    } catch (err) {
-      console.warn("Geoapify routing error, fallback ke OpenRouteService:", err);
-    }
-  }
+  // Menggunakan Geoapify Routing API
+  return await geoapifyCalculateRoute(origin, destination, averageSpeedKmH);
 
-  // 2. Fallback ke OpenRouteService
-  const apiKey = process.env.NEXT_PUBLIC_ORS_KEY;
-
-  if (!apiKey || apiKey === "masukkan_api_key_openrouteservice_anda_disini") {
-    throw new Error(
-      "Konfigurasi NEXT_PUBLIC_GEOAPIFY_KEY atau NEXT_PUBLIC_ORS_KEY belum diatur di file .env.local."
-    );
-  }
-
-  // Catatan penting: OpenRouteService menerima format koordinat [longitude, latitude]
-  const url = new URL(ORS_DIRECTIONS_ENDPOINT);
-  url.searchParams.set("api_key", apiKey);
-  url.searchParams.set("start", `${origin.lon},${origin.lat}`);
-  url.searchParams.set("end", `${destination.lon},${destination.lat}`);
-
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        Accept: "application/json, application/geo+json",
-      },
-    });
-  } catch {
-    throw new Error(
-      "Gagal terhubung ke server OpenRouteService. Periksa koneksi internet Anda."
-    );
-  }
-
-  const data: OpenRouteServiceResponse = await response
-    .json()
-    .catch(() => ({}));
-
-  if (!response.ok) {
-    if (response.status === 429) {
-      throw new Error(
-        "Batas kuota (Rate Limit) API OpenRouteService telah tercapai. Silakan tunggu beberapa saat."
-      );
-    }
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(
-        "API Key OpenRouteService tidak valid atau tidak memiliki izin akses."
-      );
-    }
-    if (response.status === 404 || data?.error?.code === 2009) {
-      throw new Error(
-        "Rute jalur darat (mobil) tidak ditemukan di antara kedua lokasi tersebut (mungkin terpisah laut/pulau tanpa jalur darat)."
-      );
-    }
-    throw new Error(
-      data?.error?.message ||
-        `Gagal menghitung rute di OpenRouteService (Status: ${response.status}).`
-    );
-  }
-
-  const summary = data.features?.[0]?.properties?.summary;
-
-  if (
-    !summary ||
-    typeof summary.distance !== "number" ||
-    typeof summary.duration !== "number"
-  ) {
-    throw new Error(
-      "Rute tidak tersedia atau respons OpenRouteService tidak memiliki data jarak & waktu tempuh."
-    );
-  }
-
-  const distanceKm = Number((summary.distance / 1000).toFixed(2));
-  const orsDurationSeconds = summary.duration;
-  const orsFormattedDuration = formatDuration(orsDurationSeconds);
-
-  // Hitung durasi berdasarkan kecepatan rata-rata realistis di Indonesia
-  const { durationSeconds, formattedDuration } = calculateDurationFromSpeed(
-    distanceKm,
-    averageSpeedKmH
-  );
-
-  // Ekstraksi geometry rute untuk polyline Leaflet (mengonversi [lon, lat] menjadi [lat, lon])
-  const geometryCoordinates = data.features?.[0]?.geometry?.coordinates;
-  let routeGeometry: [number, number][] | undefined = undefined;
-
-  if (Array.isArray(geometryCoordinates) && geometryCoordinates.length > 0) {
-    routeGeometry = geometryCoordinates.map(([lon, lat]: [number, number]) => [
-      lat,
-      lon,
-    ]);
-  }
-
-  return {
-    origin,
-    destination,
-    distanceKm,
-    durationSeconds,
-    formattedDuration,
-    averageSpeedKmH,
-    orsDurationSeconds,
-    orsFormattedDuration,
-    routeGeometry,
-  };
+  // ============================================================================
+  // [BACKUP] Fallback ke OpenRouteService Directions API (uncomment jika Geoapify tidak tersedia)
+  // ============================================================================
+  // const apiKey = process.env.NEXT_PUBLIC_ORS_KEY;
+  //
+  // if (!apiKey || apiKey === "masukkan_api_key_openrouteservice_anda_disini") {
+  //   throw new Error(
+  //     "Konfigurasi NEXT_PUBLIC_ORS_KEY belum diatur di file .env.local."
+  //   );
+  // }
+  //
+  // // Catatan penting: OpenRouteService menerima format koordinat [longitude, latitude]
+  // const url = new URL(ORS_DIRECTIONS_ENDPOINT);
+  // url.searchParams.set("api_key", apiKey);
+  // url.searchParams.set("start", `${origin.lon},${origin.lat}`);
+  // url.searchParams.set("end", `${destination.lon},${destination.lat}`);
+  //
+  // let response: Response;
+  // try {
+  //   response = await fetch(url.toString(), {
+  //     method: "GET",
+  //     headers: {
+  //       Accept: "application/json, application/geo+json",
+  //     },
+  //   });
+  // } catch {
+  //   throw new Error(
+  //     "Gagal terhubung ke server OpenRouteService. Periksa koneksi internet Anda."
+  //   );
+  // }
+  //
+  // const data = await response.json().catch(() => ({}));
+  //
+  // if (!response.ok) {
+  //   if (response.status === 429) {
+  //     throw new Error(
+  //       "Batas kuota (Rate Limit) API OpenRouteService telah tercapai. Silakan tunggu beberapa saat."
+  //     );
+  //   }
+  //   if (response.status === 401 || response.status === 403) {
+  //     throw new Error(
+  //       "API Key OpenRouteService tidak valid atau tidak memiliki izin akses."
+  //     );
+  //   }
+  //   if (response.status === 404 || data?.error?.code === 2009) {
+  //     throw new Error(
+  //       "Rute jalur darat (mobil) tidak ditemukan di antara kedua lokasi tersebut (mungkin terpisah laut/pulau tanpa jalur darat)."
+  //     );
+  //   }
+  //   throw new Error(
+  //     data?.error?.message ||
+  //       `Gagal menghitung rute di OpenRouteService (Status: ${response.status}).`
+  //   );
+  // }
+  //
+  // const summary = data.features?.[0]?.properties?.summary;
+  //
+  // if (
+  //   !summary ||
+  //   typeof summary.distance !== "number" ||
+  //   typeof summary.duration !== "number"
+  // ) {
+  //   throw new Error(
+  //     "Rute tidak tersedia atau respons OpenRouteService tidak memiliki data jarak & waktu tempuh."
+  //   );
+  // }
+  //
+  // const distanceKm = Number((summary.distance / 1000).toFixed(2));
+  // const orsDurationSeconds = summary.duration;
+  // const orsFormattedDuration = formatDuration(orsDurationSeconds);
+  //
+  // // Hitung durasi berdasarkan kecepatan rata-rata realistis di Indonesia
+  // const { durationSeconds, formattedDuration } = calculateDurationFromSpeed(
+  //   distanceKm,
+  //   averageSpeedKmH
+  // );
+  //
+  // // Ekstraksi geometry rute untuk polyline Leaflet (mengonversi [lon, lat] menjadi [lat, lon])
+  // const geometryCoordinates = data.features?.[0]?.geometry?.coordinates;
+  // let routeGeometry: [number, number][] | undefined = undefined;
+  //
+  // if (Array.isArray(geometryCoordinates) && geometryCoordinates.length > 0) {
+  //   routeGeometry = geometryCoordinates.map(([lon, lat]: [number, number]) => [
+  //     lat,
+  //     lon,
+  //   ]);
+  // }
+  //
+  // return {
+  //   origin,
+  //   destination,
+  //   distanceKm,
+  //   durationSeconds,
+  //   formattedDuration,
+  //   averageSpeedKmH,
+  //   orsDurationSeconds,
+  //   orsFormattedDuration,
+  //   routeGeometry,
+  // };
 }
-
-
